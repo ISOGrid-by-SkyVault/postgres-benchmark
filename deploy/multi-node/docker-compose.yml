@@ -1,0 +1,48 @@
+# Local multi-node target: adds a streaming replica to the bundled target
+# database, so the multi-node path can be tried without a managed cluster.
+# Use it on top of the production file, from the repository root:
+#
+#   docker compose -f docker-compose.yml -f deploy/multi-node/docker-compose.yml up --build
+#
+# Reads then go to the replica, and the suite gains two replication actions.
+# This is a demo cluster, not a hardened one: no failover, no TLS.
+
+services:
+  # The primary accepts replication connections from the internal network.
+  target-db:
+    command: ["postgres", "-c", "hba_file=/etc/postgresql/pg_hba.conf"]
+    volumes:
+      - ./deploy/multi-node/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+
+  # Clones the primary on first start, then follows it as a hot standby.
+  target-replica:
+    image: postgres:18-alpine
+    user: postgres
+    entrypoint: ["sh", "/replica-entrypoint.sh"]
+    environment:
+      PRIMARY_HOST: target-db
+      PRIMARY_USER: benchmark
+      PGPASSWORD: ${TARGET_DB_PASSWORD:-benchmark}
+    volumes:
+      - ./deploy/multi-node/replica-entrypoint.sh:/replica-entrypoint.sh:ro
+      - target_replica_data:/var/lib/postgresql
+    depends_on:
+      target-db:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U benchmark -d benchmark_target"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    environment:
+      TARGET_REPLICA_URLS: postgres://benchmark:${TARGET_DB_PASSWORD:-benchmark}@target-replica:5432/benchmark_target?sslmode=disable
+      TARGET_LABEL: Bundled PostgreSQL (primary + replica)
+    depends_on:
+      target-replica:
+        condition: service_healthy
+
+volumes:
+  target_replica_data:

@@ -1,0 +1,4 @@
+# Files read inside Linux containers keep LF endings on every platform
+*.sh text eol=lf
+*.conf text eol=lf
+*.template text eol=lf

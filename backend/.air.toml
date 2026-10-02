@@ -1,0 +1,23 @@
+# Hot reload for development (docker-compose.dev.yml).
+root = "."
+tmp_dir = "tmp"
+
+[build]
+cmd = "go build -o ./tmp/server ./cmd/server"
+bin = "./tmp/server"
+include_ext = ["go", "sql"]
+exclude_dir = ["tmp"]
+exclude_regex = ["_test\\.go"]
+delay = 500
+# File events do not cross bind mounts on Windows and macOS, so poll instead.
+poll = true
+poll_interval = 500
+stop_on_error = true
+send_interrupt = true
+kill_delay = "2s"
+
+[log]
+time = false
+
+[misc]
+clean_on_exit = true

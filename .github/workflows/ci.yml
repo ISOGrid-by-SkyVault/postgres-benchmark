@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (Go)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.27"
+          cache-dependency-path: backend/go.sum
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+      - run: go vet ./...
+      - run: go test ./...
+      - run: go build ./cmd/server
+
+  frontend:
+    name: Frontend (React)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 26
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run build
+
+  end-to-end:
+    name: End to end (${{ matrix.topology }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - topology: single
+            files: -f docker-compose.yml
+          - topology: multi-node
+            files: -f docker-compose.yml -f deploy/multi-node/docker-compose.yml
+    steps:
+      - uses: actions/checkout@v5
+      - name: Start the production stack
+        run: docker compose ${{ matrix.files }} up --build -d --wait
+      - name: Run a benchmark
+        run: sh scripts/smoke-test.sh http://localhost:3000 ${{ matrix.topology }}
+      - name: Logs
+        if: always()
+        run: docker compose ${{ matrix.files }} logs --no-color --tail 200
+
+  dev-compose:
+    name: Validate the development compose file
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: docker compose -f docker-compose.dev.yml config --quiet

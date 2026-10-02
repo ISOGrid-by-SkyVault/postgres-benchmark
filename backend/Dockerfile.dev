@@ -1,0 +1,16 @@
+# Development image: the source is bind-mounted by docker-compose.dev.yml and
+# air rebuilds and restarts the server whenever a Go file changes.
+FROM golang:1.27-alpine
+
+RUN go install github.com/air-verse/air@latest
+
+WORKDIR /app
+
+# Warm the module cache; the source itself comes from the bind mount
+COPY go.mod go.sum ./
+RUN go mod download
+
+ENV PORT=8080
+EXPOSE 8080
+
+CMD ["air", "-c", ".air.toml"]

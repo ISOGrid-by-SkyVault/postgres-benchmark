@@ -1,0 +1,100 @@
+# Production stack.
+#
+#   docker compose up --build
+#   open http://localhost:3000
+#
+# The backend is a single static binary running as PID 1. It exits with a
+# non-zero status when it cannot do its job (bad configuration, a database it
+# cannot reach at startup, the results database lost for too long), so Docker
+# Engine sees the failure. Each service also has a healthcheck, so a process
+# that is up but not working is reported as unhealthy.
+#
+# Out of the box the benchmark targets the bundled single-node `target-db`.
+# To benchmark another database, such as a managed PostgreSQL, set:
+#
+#   TARGET_DATABASE_URL   read-write endpoint (store it as a secret)
+#   TARGET_REPLICA_URLS   optional, comma-separated read-only endpoints
+#   TARGET_LABEL          optional, the name shown in the UI
+
+services:
+  # The mini database where runs and results are saved.
+  results-db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: benchmark_results
+      POSTGRES_USER: benchmark
+      POSTGRES_PASSWORD: ${RESULTS_DB_PASSWORD:-benchmark}
+    volumes:
+      - results_db_data:/var/lib/postgresql
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U benchmark -d benchmark_results"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # A single-node PostgreSQL to benchmark when no other target is configured.
+  target-db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: benchmark_target
+      POSTGRES_USER: benchmark
+      POSTGRES_PASSWORD: ${TARGET_DB_PASSWORD:-benchmark}
+    volumes:
+      - target_db_data:/var/lib/postgresql
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U benchmark -d benchmark_target"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Go API: runs the benchmarks and stores the results.
+  backend:
+    build:
+      context: ./backend
+    environment:
+      PORT: "8080"
+      RESULTS_DATABASE_URL: postgres://benchmark:${RESULTS_DB_PASSWORD:-benchmark}@results-db:5432/benchmark_results?sslmode=disable
+      TARGET_DATABASE_URL: ${TARGET_DATABASE_URL:-postgres://benchmark:benchmark@target-db:5432/benchmark_target?sslmode=disable}
+      TARGET_REPLICA_URLS: ${TARGET_REPLICA_URLS:-}
+      TARGET_LABEL: ${TARGET_LABEL:-Bundled PostgreSQL}
+      TARGET_MAX_CONNECTIONS: ${TARGET_MAX_CONNECTIONS:-32}
+    expose:
+      - "8080"
+    depends_on:
+      results-db:
+        condition: service_healthy
+      target-db:
+        condition: service_healthy
+    # Retry a few times, then stay stopped with the failing exit status
+    # instead of restarting forever and hiding the failure.
+    restart: on-failure:5
+    healthcheck:
+      test: ["CMD", "/server", "healthcheck"]
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+  # Static UI served by nginx, which proxies /api to the backend.
+  frontend:
+    build:
+      context: ./frontend
+    environment:
+      BACKEND_UPSTREAM: ${BACKEND_UPSTREAM:-http://backend:8080}
+    ports:
+      - "${FRONTEND_HOST_PORT:-3000}:8080"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: on-failure:5
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  results_db_data:
+  target_db_data:

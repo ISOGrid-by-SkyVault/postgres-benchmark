@@ -1,0 +1,13 @@
+# Development image: the source is bind-mounted by docker-compose.dev.yml and
+# the Vite dev server updates the page when a file changes.
+FROM node:26-alpine
+
+WORKDIR /app
+
+# node_modules lives in a named volume, so it is not hidden by the bind mount
+COPY package.json package-lock.json ./
+RUN npm ci
+
+EXPOSE 5173
+
+CMD ["npm", "run", "dev"]

@@ -1,0 +1,87 @@
+# Development stack with hot reload.
+#
+#   docker compose -f docker-compose.dev.yml up --build
+#   open http://localhost:5173
+#
+# backend:  air rebuilds and restarts the Go server when a .go file changes
+# frontend: the Vite dev server updates the page when a source file changes
+#
+# Unlike production, a crash here does not stop the container: air keeps
+# running and waits for the next change.
+
+services:
+  results-db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: benchmark_results
+      POSTGRES_USER: benchmark
+      POSTGRES_PASSWORD: benchmark
+    ports:
+      - "${RESULTS_DB_HOST_PORT:-5433}:5432"
+    volumes:
+      - results_db_dev_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U benchmark -d benchmark_results"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  target-db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: benchmark_target
+      POSTGRES_USER: benchmark
+      POSTGRES_PASSWORD: benchmark
+    ports:
+      - "${TARGET_DB_HOST_PORT:-5434}:5432"
+    volumes:
+      - target_db_dev_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U benchmark -d benchmark_target"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    environment:
+      PORT: "8080"
+      RESULTS_DATABASE_URL: postgres://benchmark:benchmark@results-db:5432/benchmark_results?sslmode=disable
+      TARGET_DATABASE_URL: ${TARGET_DATABASE_URL:-postgres://benchmark:benchmark@target-db:5432/benchmark_target?sslmode=disable}
+      TARGET_REPLICA_URLS: ${TARGET_REPLICA_URLS:-}
+      TARGET_LABEL: ${TARGET_LABEL:-Bundled PostgreSQL (dev)}
+    ports:
+      - "${BACKEND_HOST_PORT:-8080}:8080"
+    volumes:
+      - ./backend:/app
+      - go_mod_cache:/go/pkg/mod
+      - go_build_cache:/root/.cache/go-build
+    depends_on:
+      results-db:
+        condition: service_healthy
+      target-db:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    environment:
+      # Where the Vite dev server proxies /api
+      BACKEND_URL: http://backend:8080
+    ports:
+      - "${FRONTEND_HOST_PORT:-5173}:5173"
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    depends_on:
+      - backend
+
+volumes:
+  results_db_dev_data:
+  target_db_dev_data:
+  go_mod_cache:
+  go_build_cache:
+  frontend_node_modules:
