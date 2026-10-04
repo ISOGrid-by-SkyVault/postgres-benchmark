@@ -24,6 +24,8 @@ services:
       POSTGRES_DB: benchmark_results
       POSTGRES_USER: benchmark
       POSTGRES_PASSWORD: ${RESULTS_DB_PASSWORD:-benchmark}
+    ports:
+      - "${RESULTS_DB_HOST_PORT:-5433}:5432"
     volumes:
       - results_db_data:/var/lib/postgresql
     restart: unless-stopped
@@ -40,6 +42,8 @@ services:
       POSTGRES_DB: benchmark_target
       POSTGRES_USER: benchmark
       POSTGRES_PASSWORD: ${TARGET_DB_PASSWORD:-benchmark}
+    ports:
+      - "${TARGET_DB_HOST_PORT:-5434}:5432"
     volumes:
       - target_db_data:/var/lib/postgresql
     restart: unless-stopped
@@ -60,8 +64,8 @@ services:
       TARGET_REPLICA_URLS: ${TARGET_REPLICA_URLS:-}
       TARGET_LABEL: ${TARGET_LABEL:-Bundled PostgreSQL}
       TARGET_MAX_CONNECTIONS: ${TARGET_MAX_CONNECTIONS:-32}
-    expose:
-      - "8080"
+    ports:
+      - "${BACKEND_HOST_PORT:-8080}:8080"
     depends_on:
       results-db:
         condition: service_healthy

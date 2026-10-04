@@ -80,6 +80,20 @@ To compare, run the benchmark on each topology with the same parameters, open on
 
 ## Deploy on ISOGrid with a managed PostgreSQL
 
+### Instructions for the ISOGrid DevOps agent
+
+Deploy every service defined in `docker-compose.yml` and make all of them public, databases included. Each one must get a public address:
+
+| Service      | Port | Public address serves                        |
+| ------------ | ---- | -------------------------------------------- |
+| `frontend`   | 8080 | the UI                                       |
+| `backend`    | 8080 | the API (`/api/...`, `/healthz`)             |
+| `results-db` | 5432 | the PostgreSQL database holding the results  |
+| `target-db`  | 5432 | the bundled PostgreSQL that is benchmarked   |
+
+Keep the service names as they are: the services find each other by those names (`backend`, `results-db`, `target-db`). Before publishing the databases, set `RESULTS_DB_PASSWORD` and `TARGET_DB_PASSWORD` as secrets, with a `TARGET_DATABASE_URL` that matches; the default password is public knowledge. To benchmark a managed PostgreSQL instead of `target-db`, set `TARGET_DATABASE_URL` as described below.
+
+
 1. Create a managed PostgreSQL database on ISOGrid, single or highly available. See [Databases](https://docs.isogrid.skyvault.pro/guide/databases).
 2. Connect this repository. ISOGrid reads `docker-compose.yml` and the two Dockerfiles. See [Git repositories](https://docs.isogrid.skyvault.pro/guide/git-repositories) and [Deploying an application](https://docs.isogrid.skyvault.pro/guide/deploying-an-application).
 3. On the `backend` service, store the database address as a **secret** named `TARGET_DATABASE_URL`, and optionally set `TARGET_LABEL` to a name you will recognise in the results, such as `Managed PostgreSQL (HA)`.
@@ -124,7 +138,7 @@ Open http://localhost:5173.
 - **Backend**: [air](https://github.com/air-verse/air) rebuilds and restarts the Go server when a `.go` file changes.
 - **Frontend**: the Vite dev server updates the page when a source file changes.
 
-The API is also published on http://localhost:8080 and the two databases on ports 5433 (results) and 5434 (target).
+The API is also published on http://localhost:8080 and the two databases on ports 5433 (results) and 5434 (target), the same ports as in production.
 
 ## Production behaviour: fail loudly
 
@@ -160,8 +174,11 @@ The development file is the opposite: air keeps the container alive across crash
 | `PORT`                     | `8080`                       | backend  | HTTP port of the API                                               |
 | `BACKEND_UPSTREAM`         | `http://backend:8080`        | frontend | Address nginx proxies `/api` to                                    |
 | `FRONTEND_HOST_PORT`       | `3000`                       | compose  | Host port of the UI                                                |
+| `BACKEND_HOST_PORT`        | `8080`                       | compose  | Host port of the API                                               |
+| `RESULTS_DB_HOST_PORT`     | `5433`                       | compose  | Host port of the results database                                  |
+| `TARGET_DB_HOST_PORT`      | `5434`                       | compose  | Host port of the bundled target database                           |
 
-The two bundled databases are only reachable on the internal network and use a default password so the example starts with no setup. Change `RESULTS_DB_PASSWORD` and `TARGET_DB_PASSWORD` for anything long-lived. If you change `TARGET_DB_PASSWORD`, set `TARGET_DATABASE_URL` to match.
+The two bundled databases are published on ports 5433 and 5434 and use a default password so the example starts with no setup. Change `RESULTS_DB_PASSWORD` and `TARGET_DB_PASSWORD` for anything long-lived. If you change `TARGET_DB_PASSWORD`, set `TARGET_DATABASE_URL` to match.
 
 Addresses are URLs, so special characters in a password must be percent-encoded. Each address can also be given as a file path in `TARGET_DATABASE_URL_FILE`, `TARGET_REPLICA_URLS_FILE` or `RESULTS_DATABASE_URL_FILE`, which is how Docker Swarm and Kubernetes mount secrets. The application never logs a password.
 
